@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"runtime"
 )
 
 /*
@@ -92,6 +93,25 @@ func HandlerConnect(conn net.Conn) {
 
 	//3.发送用户上线通道到全局MesChan
 	MesChan <- "[" + conn.RemoteAddr().String() + "] 上线啦！！！！"
+
+	//创建一个匿名go程，专门处理用户发送的消息
+	go func() {
+		buf := make([]byte, 4096)
+		for true {
+			//从客户端读取信息
+			n, err := conn.Read(buf) //返回读到的个数
+			if n == 0 {
+				fmt.Printf("服务器检测到客户端[%s]已经关闭，断开连接...\n", user.name)
+				runtime.Goexit()
+			}
+			if err != nil {
+				fmt.Println("conn.Read(buf) err: ", err)
+				return
+			}
+			//写入全局msg
+			MesChan <- user.name + ": " + string(buf[:n])
+		}
+	}()
 
 	//4.保证不退出
 	for true {
