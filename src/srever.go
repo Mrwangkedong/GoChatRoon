@@ -80,8 +80,10 @@ func Manager() {
 
 }
 
+//处理与客户端的连接需求
 func HandlerConnect(conn net.Conn) {
 	defer conn.Close()
+	flag := 1 //flag == 1 在线  flag == 0 退出
 
 	//1.将client存在map中,name初始为client的addr
 	//要初始化user.C，否则channel无地址穿不进去value
@@ -95,6 +97,7 @@ func HandlerConnect(conn net.Conn) {
 	MesChan <- "[" + conn.RemoteAddr().String() + "] 上线啦！！！！"
 
 	//创建一个匿名go程，专门处理用户发送的消息
+
 	go func() {
 		buf := make([]byte, 4096)
 		for true {
@@ -108,14 +111,47 @@ func HandlerConnect(conn net.Conn) {
 				fmt.Println("conn.Read(buf) err: ", err)
 				return
 			}
-			//写入全局msg
-			MesChan <- user.name + ": " + string(buf[:n])
+			//处理不同指令的消息
+			msg := HandleMsgSort(string(buf[:n-1]), user, &flag)
+			//写入全局msg,如果等于空值，则表明用户要退出，提前已经向全局channel中注入消息
+			if msg != "" {
+				MesChan <- msg
+			}
 		}
 	}()
 
 	//4.保证不退出
 	for true {
+		//如果用户想要退出
+		if flag == 0 {
+			runtime.Goexit()
+		}
+	}
 
+}
+
+/***
+s:消息
+client：当前客户端
+*flag：当前客户端状态信息地址
+*/
+func HandleMsgSort(s string, client User, flag *int) string {
+	//处理查询所有在线用户
+	if s == "who" {
+		clients := "user list: \n\n"
+		for _, client := range user_map {
+			clients += "\t[" + client.name + "] \n "
+		}
+		return clients
+	} else if s == "exit" {
+		//发布用户退出消息
+		MesChan <- "[" + client.name + "] Exit..."
+		//标志退出符
+		*flag = 0
+		//返回空值
+		return ""
+	} else {
+		return "[" + client.name + "]: " + s
 	}
 
 }
