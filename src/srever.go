@@ -104,7 +104,7 @@ func HandlerConnect(conn net.Conn) {
 			n, err := conn.Read(buf) //返回读到的个数
 			if n == 0 {
 				fmt.Printf("服务器检测到客户端[%s]已经关闭，断开连接...\n", user.name)
-				runtime.Goexit()
+				exitFlag <- 1
 			}
 			if err != nil {
 				fmt.Println("conn.Read(buf) err: ", err)
