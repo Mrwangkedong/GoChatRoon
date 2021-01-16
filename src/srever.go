@@ -112,7 +112,7 @@ func HandlerConnect(conn net.Conn) {
 				return
 			}
 			//处理不同指令的消息
-			msg := HandleMsgSort(string(buf[:n-1]), user, &flag)
+			msg := HandleMsgSort(string(buf[:n-1]), &user, &flag, conn)
 			//写入全局msg,如果等于空值，则表明用户要退出，提前已经向全局channel中注入消息
 			if msg != "" {
 				MesChan <- msg
@@ -135,22 +135,32 @@ s:消息
 client：当前客户端
 *flag：当前客户端状态信息地址
 */
-func HandleMsgSort(s string, client User, flag *int) string {
+func HandleMsgSort(s string, client *User, flag *int, conn net.Conn) string {
 	//处理查询所有在线用户
+	//查询在线用户
 	if s == "who" {
 		clients := "user list: \n\n"
 		for _, client := range user_map {
 			clients += "\t[" + client.name + "] \n "
 		}
-		return clients
-	} else if s == "exit" {
+		_, _ = conn.Write([]byte(clients + "\n"))
+		return ""
+	} else if s == "exit" { //处理退出
 		//发布用户退出消息
 		MesChan <- "[" + client.name + "] Exit..."
+		//更新map
+		delete(user_map, client.addr)
 		//标志退出符
 		*flag = 0
 		//返回空值
 		return ""
-	} else {
+	} else if len(s) > 7 && s[:7] == "rename|" { //改名
+		preName := client.name
+		client.name = s[7:] //提取后面的名称，进行改名
+		user_map[client.addr] = *client
+		_, _ = conn.Write([]byte("[" + preName + "]Rename[" + client.name + "]\n"))
+		return "" //改名后不进行提示
+	} else { //处理
 		return "[" + client.name + "]: " + s
 	}
 
