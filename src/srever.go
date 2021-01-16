@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"runtime"
+	"time"
 )
 
 /*
@@ -70,11 +71,9 @@ func Manager() {
 	for true {
 		//监听全局channel中是否有数据,有数据读出来，无数据则阻塞
 		msg := <-MesChan
-		//循环发送消息
+		//循环向在线所有用户发送消息
 		for _, client := range user_map {
-
 			client.C <- msg
-
 		}
 	}
 
@@ -83,7 +82,8 @@ func Manager() {
 //处理与客户端的连接需求
 func HandlerConnect(conn net.Conn) {
 	defer conn.Close()
-	flag := 1 //flag == 1 在线  flag == 0 退出
+	exitFlag := make(chan int) //exitFlag 有值就退出
+	talkFlag := make(chan int) //talkFlag 监听是否在活跃
 
 	//1.将client存在map中,name初始为client的addr
 	//要初始化user.C，否则channel无地址穿不进去value
@@ -112,19 +112,25 @@ func HandlerConnect(conn net.Conn) {
 				return
 			}
 			//处理不同指令的消息
-			msg := HandleMsgSort(string(buf[:n-1]), &user, &flag, conn)
+			msg := HandleMsgSort(string(buf[:n-1]), &user, exitFlag, talkFlag, conn)
 			//写入全局msg,如果等于空值，则表明用户要退出，提前已经向全局channel中注入消息
 			if msg != "" {
-				MesChan <- msg
+				MesChan <- msg //发出当前聊天信息
 			}
 		}
 	}()
 
 	//4.保证不退出
 	for true {
-		//如果用户想要退出
-		if flag == 0 {
-			runtime.Goexit()
+		select {
+		case <-talkFlag:
+			fmt.Printf("")
+		case <-exitFlag:
+			runtime.Goexit() //结束当前进程
+		case <-time.After(time.Second * 10):
+			delete(user_map, user.addr)              //更新当前在线列表
+			MesChan <- "[" + user.name + "] Exit..." //通知大厅有人退出
+			runtime.Goexit()                         //不活跃超过10秒，退出
 		}
 	}
 
@@ -135,7 +141,7 @@ s:消息
 client：当前客户端
 *flag：当前客户端状态信息地址
 */
-func HandleMsgSort(s string, client *User, flag *int, conn net.Conn) string {
+func HandleMsgSort(s string, client *User, exitFlag chan int, talkFlag chan int, conn net.Conn) string {
 	//处理查询所有在线用户
 	//查询在线用户
 	if s == "who" {
@@ -144,14 +150,16 @@ func HandleMsgSort(s string, client *User, flag *int, conn net.Conn) string {
 			clients += "\t[" + client.name + "] \n "
 		}
 		_, _ = conn.Write([]byte(clients + "\n"))
+		//向活跃channel中注入
+		talkFlag <- 1
 		return ""
 	} else if s == "exit" { //处理退出
 		//发布用户退出消息
 		MesChan <- "[" + client.name + "] Exit..."
 		//更新map
 		delete(user_map, client.addr)
-		//标志退出符
-		*flag = 0
+		//向退出channel中注入
+		exitFlag <- 1
 		//返回空值
 		return ""
 	} else if len(s) > 7 && s[:7] == "rename|" { //改名
@@ -159,8 +167,13 @@ func HandleMsgSort(s string, client *User, flag *int, conn net.Conn) string {
 		client.name = s[7:] //提取后面的名称，进行改名
 		user_map[client.addr] = *client
 		_, _ = conn.Write([]byte("[" + preName + "]Rename[" + client.name + "]\n"))
+		//向活跃channel中注入
+		talkFlag <- 1
 		return "" //改名后不进行提示
-	} else { //处理
+	} else {
+		//处理向大厅中发送的消息
+		//向活跃channel中注入
+		talkFlag <- 1
 		return "[" + client.name + "]: " + s
 	}
 
