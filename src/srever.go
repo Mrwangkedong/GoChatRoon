@@ -97,7 +97,6 @@ func HandlerConnect(conn net.Conn) {
 	MesChan <- "[" + conn.RemoteAddr().String() + "] 上线啦！！！！"
 
 	//创建一个匿名go程，专门处理用户发送的消息
-
 	go func() {
 		buf := make([]byte, 4096)
 		for true {
@@ -126,8 +125,11 @@ func HandlerConnect(conn net.Conn) {
 		case <-talkFlag:
 			fmt.Printf("")
 		case <-exitFlag:
-			runtime.Goexit() //结束当前进程
+			user.C <- "exit" //关闭子go程
+			runtime.Goexit() //结束当前进程   //会导致子go程还在运行
+			//return     //会导致子go程还在运行
 		case <-time.After(time.Second * 10):
+			user.C <- "exit"                         //关闭子go程
 			delete(user_map, user.addr)              //更新当前在线列表
 			MesChan <- "[" + user.name + "] Exit..." //通知大厅有人退出
 			runtime.Goexit()                         //不活跃超过10秒，退出
@@ -182,8 +184,11 @@ func HandleMsgSort(s string, client *User, exitFlag chan int, talkFlag chan int,
 //利用当前连接，给当前用户发送消息
 func WriteMsgToClient(user User, conn net.Conn) {
 	//循环去写广播数据给Client
-	for true {
+	for {
 		msg := <-user.C //监听用户自带channel是否有数据
+		if msg == "exit" {
+			runtime.Goexit()
+		}
 		_, err := conn.Write([]byte(msg + "\n"))
 		if err != nil {
 			fmt.Println("Client ["+user.name+"] conn.Write(buf) err: ", err)
